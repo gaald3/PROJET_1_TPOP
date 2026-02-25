@@ -83,43 +83,29 @@ def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
             return lab
     return "Unknown"
 
-def read_txt_spectrum(path: str) -> Tuple[np.ndarray, np.ndarray]:
+def read_txt_spectrum(path: str):
     """
-    Robust reader: tries to read two numeric columns from a txt.
-    Accepts separators: space, tab, comma, semicolon.
-    Ignores commented/header lines.
+    Format spectromètre TPOP:
+
+    Colonne 1 : junk (toujours 1) -> ignorée
+    Colonne 2 : Raman shift (cm^-1)
+    Colonne 3 : Counts CCD (intensité)
+
+    Output:
+        x = Raman shift
+        y = intensity
     """
-    # Read raw lines
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        lines = f.readlines()
 
-    data = []
-    for ln in lines:
-        s = ln.strip()
-        if not s:
-            continue
-        if s.startswith("#") or s.startswith("//"):
-            continue
-        # Try split on common separators
-        parts = re.split(r"[,\t; ]+", s)
-        if len(parts) < 2:
-            continue
-        try:
-            a = float(parts[0])
-            b = float(parts[1])
-            data.append((a, b))
-        except ValueError:
-            # header line
-            continue
+    data = np.loadtxt(
+        path,
+        delimiter=",",
+        usecols=(1, 2)   # ignore colonne 1 automatiquement
+    )
 
-    if len(data) < 10:
-        raise ValueError(f"Not enough numeric rows in file: {path}")
+    x = data[:, 0]
+    y = data[:, 1]
 
-    arr = np.array(data, dtype=float)
-    x = arr[:, 0]
-    y = arr[:, 1]
-
-    # Ensure ascending x
+    # sécurité ordre croissant
     if x[0] > x[-1]:
         x = x[::-1]
         y = y[::-1]
@@ -199,6 +185,10 @@ def preprocess_y(
             y2 = y2 / norm
 
     return x, y2
+
+    SATURATION_LIMIT = 980000
+
+    y2[y2 > SATURATION_LIMIT] = SATURATION_LIMIT
 
 # =========================
 # ALIGNMENT / RESAMPLING
