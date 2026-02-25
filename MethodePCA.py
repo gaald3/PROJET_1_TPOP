@@ -186,10 +186,6 @@ def preprocess_y(
 
     return x, y2
 
-    SATURATION_LIMIT = 980000
-
-    y2[y2 > SATURATION_LIMIT] = SATURATION_LIMIT
-
 # =========================
 # ALIGNMENT / RESAMPLING
 # =========================
