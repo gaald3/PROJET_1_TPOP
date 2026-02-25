@@ -1,0 +1,388 @@
+"""
+PCA Raman Library Analyzer
+- Load many .txt spectra
+- Optional preprocessing: baseline (ALS), smoothing, normalization
+- PCA: scores plots + loadings
+- Export results (scores) to CSV
+
+Requirements:
+    pip install numpy pandas matplotlib scikit-learn scipy
+
+Optional:
+    pip install natsort
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import glob
+from dataclasses import dataclass
+from typing import Dict, List, Tuple, Optional
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import Pipeline
+
+from scipy.signal import savgol_filter
+from scipy import sparse
+from scipy.sparse.linalg import spsolve
+
+# =========================
+# CONFIG (change me)
+# =========================
+DATA_DIR = "./data"   # dossier contenant les .txt (ou sous-dossiers)
+FILE_GLOB = "**/*.txt"  # recherche récursive
+
+# Choix prétraitements
+USE_BASELINE_ALS = True
+USE_SMOOTHING = True
+USE_NORMALIZATION = True     # normalisation par norme (L2)
+USE_STANDARDIZE_FOR_PCA = True  # StandardScaler avant PCA (souvent utile)
+
+# PCA
+N_COMPONENTS = 6
+
+# Domaine spectral optionnel (pour couper bords bruyants)
+# Mets None pour désactiver
+WAVENUMBER_MIN = None   # ex: 300
+WAVENUMBER_MAX = None   # ex: 1800
+
+# Cibles: définir comment labeliser à partir du nom de fichier
+# Tu peux adapter selon vos noms: "B2", "pseudo", "testo", "huile", "blank"
+LABEL_RULES = [
+    (r"\bblank\b|\bB2\b|\bribo\b", "B2_only"),
+    (r"pseudo|ephed", "Pseudo"),
+    (r"testo|testosterone", "Testosterone"),
+    (r"huile|oil", "Oil"),
+    (r"mix|melange|urine", "Mixture"),
+]
+
+# =========================
+# DATA STRUCTURES
+# =========================
+@dataclass
+class Spectrum:
+    path: str
+    name: str
+    label: str
+    x: np.ndarray  # Raman shift (cm-1) or wavelength axis
+    y: np.ndarray  # intensity
+
+# =========================
+# IO + PARSING
+# =========================
+def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
+    low = filename.lower()
+    for pattern, lab in rules:
+        if re.search(pattern, low):
+            return lab
+    return "Unknown"
+
+def read_txt_spectrum(path: str) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Robust reader: tries to read two numeric columns from a txt.
+    Accepts separators: space, tab, comma, semicolon.
+    Ignores commented/header lines.
+    """
+    # Read raw lines
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        lines = f.readlines()
+
+    data = []
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.startswith("#") or s.startswith("//"):
+            continue
+        # Try split on common separators
+        parts = re.split(r"[,\t; ]+", s)
+        if len(parts) < 2:
+            continue
+        try:
+            a = float(parts[0])
+            b = float(parts[1])
+            data.append((a, b))
+        except ValueError:
+            # header line
+            continue
+
+    if len(data) < 10:
+        raise ValueError(f"Not enough numeric rows in file: {path}")
+
+    arr = np.array(data, dtype=float)
+    x = arr[:, 0]
+    y = arr[:, 1]
+
+    # Ensure ascending x
+    if x[0] > x[-1]:
+        x = x[::-1]
+        y = y[::-1]
+
+    return x, y
+
+def load_library(data_dir: str, file_glob: str) -> List[Spectrum]:
+    paths = glob.glob(os.path.join(data_dir, file_glob), recursive=True)
+    paths = [p for p in paths if os.path.isfile(p)]
+    if not paths:
+        raise FileNotFoundError(f"No .txt files found in: {data_dir}")
+
+    spectra = []
+    for p in paths:
+        name = os.path.splitext(os.path.basename(p))[0]
+        label = infer_label_from_name(name)
+        x, y = read_txt_spectrum(p)
+        spectra.append(Spectrum(path=p, name=name, label=label, x=x, y=y))
+    return spectra
+
+# =========================
+# PREPROCESSING
+# =========================
+def baseline_als(y: np.ndarray, lam: float = 1e6, p: float = 0.01, niter: int = 10) -> np.ndarray:
+    """
+    Asymmetric Least Squares baseline
+    lam: smoothness (bigger => smoother baseline)
+    p: asymmetry (0.001-0.1 typical)
+    """
+    L = len(y)
+    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+    w = np.ones(L)
+    for _ in range(niter):
+        W = sparse.spdiags(w, 0, L, L)
+        Z = W + lam * D.dot(D.T)
+        z = spsolve(Z, w * y)
+        w = p * (y > z) + (1 - p) * (y < z)
+    return z
+
+def preprocess_y(
+    x: np.ndarray,
+    y: np.ndarray,
+    use_baseline: bool = True,
+    use_smoothing: bool = True,
+    use_norm: bool = True,
+    wn_min: Optional[float] = None,
+    wn_max: Optional[float] = None,
+) -> Tuple[np.ndarray, np.ndarray]:
+    # Crop range
+    if wn_min is not None or wn_max is not None:
+        lo = wn_min if wn_min is not None else x.min()
+        hi = wn_max if wn_max is not None else x.max()
+        mask = (x >= lo) & (x <= hi)
+        x = x[mask]
+        y = y[mask]
+
+    y2 = y.astype(float).copy()
+
+    # Baseline correction
+    if use_baseline:
+        base = baseline_als(y2, lam=1e6, p=0.01, niter=10)
+        y2 = y2 - base
+
+    # Smoothing (Savitzky-Golay)
+    if use_smoothing:
+        # window must be odd and < len(y)
+        win = min(21, len(y2) - 1 if (len(y2) % 2 == 0) else len(y2))
+        if win < 7:
+            win = 7 if len(y2) >= 7 else (len(y2) // 2) * 2 + 1
+        if win >= 7 and win < len(y2):
+            y2 = savgol_filter(y2, window_length=win, polyorder=3)
+
+    # Normalization (L2)
+    if use_norm:
+        norm = np.linalg.norm(y2)
+        if norm > 0:
+            y2 = y2 / norm
+
+    return x, y2
+
+# =========================
+# ALIGNMENT / RESAMPLING
+# =========================
+def build_common_grid(spectra: List[Spectrum], n_points: int = 1500) -> np.ndarray:
+    """
+    Create a common x grid to interpolate all spectra.
+    Uses overlap of all spectra to avoid edge extrapolation.
+    """
+    xmin = max(sp.x.min() for sp in spectra)
+    xmax = min(sp.x.max() for sp in spectra)
+    if xmin >= xmax:
+        raise ValueError("No overlapping x-range across spectra.")
+    return np.linspace(xmin, xmax, n_points)
+
+def interpolate_to_grid(x: np.ndarray, y: np.ndarray, grid: np.ndarray) -> np.ndarray:
+    return np.interp(grid, x, y)
+
+# =========================
+# PCA ANALYSIS
+# =========================
+def run_pca(
+    spectra: List[Spectrum],
+    grid_points: int = 1500,
+) -> Dict[str, object]:
+    # 1) common grid
+    grid = build_common_grid(spectra, n_points=grid_points)
+
+    # 2) preprocess + interpolate
+    X = []
+    labels = []
+    names = []
+    paths = []
+
+    for sp in spectra:
+        x_p, y_p = preprocess_y(
+            sp.x, sp.y,
+            use_baseline=USE_BASELINE_ALS,
+            use_smoothing=USE_SMOOTHING,
+            use_norm=USE_NORMALIZATION,
+            wn_min=WAVENUMBER_MIN,
+            wn_max=WAVENUMBER_MAX,
+        )
+        y_g = interpolate_to_grid(x_p, y_p, grid)
+        X.append(y_g)
+        labels.append(sp.label)
+        names.append(sp.name)
+        paths.append(sp.path)
+
+    X = np.vstack(X)  # shape: (n_samples, n_features)
+
+    # 3) PCA pipeline
+    steps = []
+    if USE_STANDARDIZE_FOR_PCA:
+        steps.append(("scaler", StandardScaler(with_mean=True, with_std=True)))
+    steps.append(("pca", PCA(n_components=N_COMPONENTS, random_state=0)))
+    pipe = Pipeline(steps)
+    scores = pipe.fit_transform(X)  # (n_samples, n_components)
+
+    # Retrieve PCA model + explained variance
+    pca_model: PCA = pipe.named_steps["pca"]
+    evr = pca_model.explained_variance_ratio_
+
+    # loadings:
+    # If standardized, components_ are in standardized feature space; still ok for interpretation.
+    loadings = pca_model.components_  # (n_components, n_features)
+
+    meta = pd.DataFrame({
+        "name": names,
+        "label": labels,
+        "path": paths,
+    })
+    for i in range(scores.shape[1]):
+        meta[f"PC{i+1}"] = scores[:, i]
+
+    return {
+        "grid": grid,
+        "X": X,
+        "scores": scores,
+        "loadings": loadings,
+        "explained_variance_ratio": evr,
+        "meta": meta,
+        "pipeline": pipe,
+    }
+
+# =========================
+# PLOTTING
+# =========================
+def plot_scores(meta: pd.DataFrame, pcx: int = 1, pcy: int = 2, title: str = "") -> None:
+    """
+    pcx/pcy are 1-indexed (PC1, PC2, ...)
+    """
+    xcol = f"PC{pcx}"
+    ycol = f"PC{pcy}"
+
+    labels = meta["label"].unique()
+
+    plt.figure()
+    for lab in labels:
+        sub = meta[meta["label"] == lab]
+        plt.scatter(sub[xcol], sub[ycol], label=lab)
+
+    plt.xlabel(xcol)
+    plt.ylabel(ycol)
+    plt.title(title or f"Scores plot {xcol} vs {ycol}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_loadings(grid: np.ndarray, loadings: np.ndarray, pcs: List[int] = [1, 2], title: str = "") -> None:
+    """
+    Plot loadings vs wavenumber for selected PCs (1-indexed)
+    """
+    plt.figure()
+    for pc in pcs:
+        plt.plot(grid, loadings[pc - 1, :], label=f"PC{pc} loading")
+
+    plt.xlabel("Raman shift / axis (common grid)")
+    plt.ylabel("Loading (a.u.)")
+    plt.title(title or f"Loadings for PCs: {pcs}")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+def plot_explained_variance(evr: np.ndarray) -> None:
+    plt.figure()
+    xs = np.arange(1, len(evr) + 1)
+    plt.plot(xs, evr, marker="o")
+    plt.xlabel("Principal component")
+    plt.ylabel("Explained variance ratio")
+    plt.title("Explained variance per PC")
+    plt.tight_layout()
+    plt.show()
+
+# =========================
+# OUTLIERS (simple)
+# =========================
+def flag_outliers(meta: pd.DataFrame, pcs: List[int] = [1, 2], z_thresh: float = 3.0) -> pd.DataFrame:
+    cols = [f"PC{i}" for i in pcs]
+    Z = meta[cols].to_numpy()
+    z = (Z - Z.mean(axis=0)) / (Z.std(axis=0) + 1e-12)
+    out = (np.abs(z) > z_thresh).any(axis=1)
+    meta2 = meta.copy()
+    meta2["outlier"] = out
+    return meta2
+
+# =========================
+# MAIN
+# =========================
+def main():
+    print(f"Loading library from: {DATA_DIR}")
+    spectra = load_library(DATA_DIR, FILE_GLOB)
+    print(f"Loaded {len(spectra)} spectra")
+
+    # Quick sanity check
+    print("Labels count:")
+    print(pd.Series([sp.label for sp in spectra]).value_counts())
+
+    res = run_pca(spectra, grid_points=1500)
+
+    meta = res["meta"]
+    evr = res["explained_variance_ratio"]
+    grid = res["grid"]
+    loadings = res["loadings"]
+
+    print("\nExplained variance ratio:")
+    for i, v in enumerate(evr, start=1):
+        print(f"  PC{i}: {v:.4f}")
+
+    # Plots
+    plot_explained_variance(evr)
+    plot_scores(meta, 1, 2, title="PCA Scores: PC1 vs PC2")
+    plot_scores(meta, 1, 3, title="PCA Scores: PC1 vs PC3")
+    plot_loadings(grid, loadings, pcs=[1, 2, 3], title="PCA Loadings (PC1-3)")
+
+    # Outliers
+    meta2 = flag_outliers(meta, pcs=[1, 2], z_thresh=3.0)
+    n_out = int(meta2["outlier"].sum())
+    print(f"\nOutliers flagged (PC1/PC2 z>{3.0}): {n_out}")
+
+    # Export
+    out_csv = os.path.join(DATA_DIR, "pca_scores_export.csv")
+    meta2.to_csv(out_csv, index=False)
+    print(f"Exported scores to: {out_csv}")
+
+if __name__ == "__main__":
+    main()
