@@ -1,7 +1,3 @@
-"""
-PCA Raman Library Analyzer - Version COLLÈGUE + OPTIONS TERRAIN
-"""
-
 from __future__ import annotations
 import os
 import re
