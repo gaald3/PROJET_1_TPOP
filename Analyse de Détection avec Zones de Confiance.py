@@ -17,12 +17,13 @@ from matplotlib.patches import Ellipse
 
 # CONFIG
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
-FILE_GLOB = "**/*.TXT" 
+FILE_GLOB = "**/*.TXT"
+# Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
 NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/MIX-trace-1.TXT'
 
-# Choix prétraitements
+# prétraitements
 USE_BASELINE_ALS = True
-USE_SMOOTHING = True
+USE_SMOOTHING = True # Filtre de Savitzky-Golay reduit le bruit mais ecrase pas les pics
 USE_NORMALIZATION = True     
 USE_STANDARDIZE_FOR_PCA = True  
 USE_BLANK_SUBTRACTION = True 
@@ -30,7 +31,7 @@ USE_BLANK_SUBTRACTION = True
 # PCA
 N_COMPONENTS = 6
 
-# Domaine spectral (Focus sur les pics chimiques)
+# **Pour ignorer le bruit (fluo)
 WAVENUMBER_MIN = 450   
 WAVENUMBER_MAX = 1650
 
@@ -59,7 +60,7 @@ def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
     return "Unknown"
 
 def read_txt_spectrum(path: str):
-    # Charge les colonnes 2 (Raman Shift) et 3 (Intensité)
+    # colonne 2 (Raman Shift), 3 (Intensité)
     data = np.loadtxt(path, delimiter=",", usecols=(1, 2))
     x, y = data[:, 0], data[:, 1]
     if x[0] > x[-1]: x, y = x[::-1], y[::-1]
@@ -79,6 +80,12 @@ def load_library(data_dir: str, file_glob: str) -> List[Spectrum]:
     return spectra
 
 # PREPROCESSING
+    """
+    Algèbre linéaire pour estimer la "courbe" de fluorescence
+    et la soustraire, afin de ne garder que les pics
+    Raman d'interet.
+    """
+
 def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int = 15) -> np.ndarray:
     L = len(y)
     D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
@@ -91,7 +98,7 @@ def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int =
     return z
 
 def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
-    # Croping (On s'assure que le masque s'applique aux deux vecteurs en même temps)
+    # ignorer le bruit (Savitsky)
     mask = (x >= (wn_min or x.min())) & (x <= (wn_max or x.max()))
     if not np.any(mask): mask = np.ones(len(x), dtype=bool)
     
@@ -110,6 +117,11 @@ def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
     return x_proc, y_proc
 
 # Alignement
+"""
+Chaque spectre ont des points légèrement décalés.
+On crée une "grille" commune de 1500 points pour
+que chaque fichier soit parfaitement aligné
+"""
 def build_common_grid(spectra: List[Spectrum], n_points: int = 1500) -> np.ndarray:
     xmin = max(sp.x.min() for sp in spectra)
     xmax = min(sp.x.max() for sp in spectra)
@@ -131,7 +143,7 @@ def main():
     
     X = np.vstack(X_list)
 
-    # Soustraction du B2 seul pour avoir des resultst clairs
+    # Soustraction du B2 moyen seul pour voir juste le dopant
     blank_mean = 0
     if USE_BLANK_SUBTRACTION:
         idx_b = [i for i, l in enumerate(labels) if "Control_Blank" in l]
@@ -158,6 +170,11 @@ def main():
     b_names = np.array(names)[idx_control]
     
     # Filtre statistique (IQR)
+    """
+    calcule la distance de chaque point rouge par rapport à leur centre,
+    élimine les 25% les plus éloignés (percentile, 75).
+    C'est ce qui "resserre" les cercles pour les rendre plus précis
+    """
     b_center_raw = np.mean(b_scores[:, :2], axis=0)
     dists_raw = np.linalg.norm(b_scores[:, :2] - b_center_raw, axis=1)
     limit = np.percentile(dists_raw, 75)
@@ -167,7 +184,7 @@ def main():
     print(f"\n--- FILTRE D'ABERRATIONS ---")
     print(f"Fichiers Urine_Base masqués (trop dispersés) : {list(ignored)}")
 
-    # Dessin des points propres et ellipses
+    # Dessin des points et ellipses
     for lab in np.unique(labels):
         traduction = {
         "Urine_Base": "Urine saine (Contrôle)",
@@ -189,6 +206,12 @@ def main():
         color = scatter.get_facecolor()[0]
 
         # Ellipse de confiance (95%)
+        """
+        calcule la matrice de covariance (np.cov)
+        pour dessiner la forme du nuage de points.
+        Le "Rayon 2-sigma" crée un cercle qui
+        englobe 95% des probabilités.
+        """
         if len(s_plot) > 2:
             cov = np.cov(s_plot[:, :2], rowvar=False)
             vals, vecs = np.linalg.eigh(cov)
@@ -200,7 +223,7 @@ def main():
                           angle=theta, color=color, alpha=0.1, label=f"Zone {lab}")
             ax.add_artist(ell)
 
-    # Projection de l'Échantillon Terrain (Étoile)
+    # échantillon Terrain (Étoile)
     if NEW_SAMPLE_PATH and os.path.exists(NEW_SAMPLE_PATH):
         xt, yt = read_txt_spectrum(NEW_SAMPLE_PATH)
         xtp, ytp = preprocess_y(xt, yt, USE_BASELINE_ALS, USE_SMOOTHING, 
@@ -216,8 +239,11 @@ def main():
         # Seuil statistique
         dists_clean = np.linalg.norm(b_clean_scores[:, :2] - b_center_clean, axis=1)
         seuil = np.mean(dists_clean) + 2 * np.std(dists_clean)
-        
-        verdict = "POSITIF" if dist_test > seuil else "NEGATIF"
+        """
+        Positif si distance de l'etoile
+        est plus grand que le rayon de confiance.
+        """
+        verdict = "POSITIF" if dist_test > seuil else "NEGATIF" 
         plt.scatter(st[0,0], st[0,1], color='red' if verdict=="POSITIF" else 'lime', 
                     marker='*', s=500, label=f"TEST: {verdict}", edgecolors='k', zorder=100)
         
