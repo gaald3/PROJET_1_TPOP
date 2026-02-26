@@ -55,11 +55,11 @@ WAVENUMBER_MAX = None   # ex: 1800
 # Cibles: définir comment labeliser à partir du nom de fichier
 # Tu peux adapter selon vos noms: "B2", "pseudo", "testo", "huile", "blank"
 LABEL_RULES = [
-    (r"B2", "Control_Blank"),
-    (r"pseudo-seul", "Pseudo_Pure"),
-    (r"testo-1", "Testo_Pure"),
-    (r"trace", "Mix_Traces"), # Très important pour ta question scientifique
-    (r"haut|mid", "Mix_High_Mid"),
+    (r"\bblank\b|\bB2\b|\bribo\b", "B2_only"),
+    (r"pseudo|ephed", "Pseudo"),
+    (r"testo|testosterone", "Testosterone"),
+    (r"huile|oil", "Oil"),
+    (r"mix|melange|urine", "Mixture"),
 ]
 
 # =========================
@@ -180,9 +180,15 @@ def preprocess_y(
 
     # Normalization (L2)
     if use_norm:
-        y2 = (y2 - np.mean(y2)) / np.std(y2)
+        norm = np.linalg.norm(y2)
+        if norm > 0:
+            y2 = y2 / norm
 
     return x, y2
+
+    SATURATION_LIMIT = 980000
+
+    y2[y2 > SATURATION_LIMIT] = SATURATION_LIMIT
 
 # =========================
 # ALIGNMENT / RESAMPLING
