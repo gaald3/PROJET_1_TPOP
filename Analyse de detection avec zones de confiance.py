@@ -19,9 +19,7 @@ from matplotlib.patches import Ellipse
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT"
 # Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/MIX-trace-1.TXT'
-
-# prétraitements
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
 USE_BASELINE_ALS = True
 USE_SMOOTHING = True # Filtre de Savitzky-Golay reduit le bruit mais ecrase pas les pics
 USE_NORMALIZATION = True     
@@ -182,7 +180,7 @@ def main():
     
     ignored = b_names[~clean_mask]
     print(f"\n--- FILTRE D'ABERRATIONS ---")
-    print(f"Fichiers Urine_Base masqués (trop dispersés) : {list(ignored)}")
+    print(f"Fichiers masqués (trop dispersés) : {list(ignored)}")
 
     # Dessin des points et ellipses
     for lab in np.unique(labels):
@@ -190,7 +188,7 @@ def main():
         "Urine_Base": "Urine saine (Contrôle)",
         "Pseudo_Traces": "Limite de détection (Traces)",
         "Pseudo_Pure": "Signature Moléculaire Pure",
-        "Pseudo_Concentrée": "Échantillon dopé (Haut)",
+        "Pseudo_Concentrée": "Échantillon élevé (Haut)",
         "TEST: POSITIF": "VERDICT : DOPAGE DÉTECTÉ"
     }
         mask = np.array(labels) == lab
