@@ -13,23 +13,24 @@ from sklearn.pipeline import Pipeline
 from scipy.signal import savgol_filter
 from scipy import sparse
 from scipy.sparse.linalg import spsolve
+from matplotlib.patches import Ellipse
 
 # =========================
 # CONFIG (Adapté à ton Mac)
 # =========================
-DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1/Données'
+DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT" 
 
 # --- AJOUT : TON FICHIER TEST TERRAIN ---
-# Remplace None par le chemin de ton fichier pour un test spontané
-NEW_SAMPLE_PATH = /Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1/MIX-mid-3.TXT
+# Chemin vérifié vers ton fichier MIX-mid-3.TXT
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/B2-Bas-2.TXT'
 
 # Choix prétraitements
 USE_BASELINE_ALS = True
 USE_SMOOTHING = True
 USE_NORMALIZATION = True     
 USE_STANDARDIZE_FOR_PCA = True  
-USE_BLANK_SUBTRACTION = True # <-- NOUVEAU : Soustrait le B2 moyen
+USE_BLANK_SUBTRACTION = True 
 
 # PCA
 N_COMPONENTS = 5
@@ -39,11 +40,10 @@ WAVENUMBER_MIN = 450
 WAVENUMBER_MAX = 1650  
 
 LABEL_RULES = [
-    (r"B2", "Control_Blank"),
+    (r"B2", "Urine_Base"),
     (r"Pseudo-seul", "Pseudo_Pure"),
-    (r"testo-1", "Testo_Pure"),
-    (r"trace", "Mix_Traces"),
-    (r"MIX-haut|MIX-mid|testo_melange", "Mix_Concentrated"),
+    (r"trace", "Pseudo_Traces"),
+    (r"MIX-haut|MIX-mid", "Pseudo_Concentrée")
 ]
 
 # =========================
@@ -68,14 +68,15 @@ def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
     return "Unknown"
 
 def read_txt_spectrum(path: str):
+    # Charge les colonnes 2 (Raman Shift) et 3 (Intensité)
     data = np.loadtxt(path, delimiter=",", usecols=(1, 2))
     x, y = data[:, 0], data[:, 1]
     if x[0] > x[-1]: x, y = x[::-1], y[::-1]
     return x, y
 
 def load_library(data_dir: str, file_glob: str) -> List[Spectrum]:
-    paths = glob.glob(os.path.join(data_dir, file_glob), recursive=True)
-    paths = [p for p in paths if os.path.isfile(p) and "calibration" not in p.lower()]
+    paths = [p for p in glob.glob(os.path.join(DATA_DIR, FILE_GLOB), recursive=True) 
+         if "testo" not in p.lower() and "calibration" not in p.lower()]
     if not paths:
         raise FileNotFoundError(f"No .txt files found in: {data_dir}")
     spectra = []
@@ -101,18 +102,23 @@ def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int =
     return z
 
 def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
+    # CROP : On s'assure que le masque s'applique aux deux vecteurs en même temps
     mask = (x >= (wn_min or x.min())) & (x <= (wn_max or x.max()))
     if not np.any(mask): mask = np.ones(len(x), dtype=bool)
-    x, y = x[mask], y.astype(float)[mask]
+    
+    x_proc = x[mask].copy()
+    y_proc = y[mask].astype(float).copy()
 
     if use_baseline:
-        y = y - baseline_als(y)
+        y_proc = y_proc - baseline_als(y_proc)
     if use_smoothing:
-        win = min(15, len(y) - 1 if (len(y) % 2 == 0) else len(y))
-        if win >= 3: y = savgol_filter(y, window_length=win, polyorder=2)
+        win = min(15, len(y_proc) - 1 if (len(y_proc) % 2 == 0) else len(y_proc))
+        if win >= 3: 
+            y_proc = savgol_filter(y_proc, window_length=win, polyorder=2)
     if use_norm:
-        y = (y - np.mean(y)) / (np.std(y) + 1e-12)
-    return x, y
+        y_proc = (y_proc - np.mean(y_proc)) / (np.std(y_proc) + 1e-12)
+        
+    return x_proc, y_proc
 
 # =========================
 # ALIGNMENT / RESAMPLING
@@ -132,6 +138,7 @@ def main():
 
     X_list, labels, names = [], [], []
     for sp in spectra:
+        # SÉCURITÉ : On récupère x et y déjà coupés et synchronisés
         x_p, y_p = preprocess_y(sp.x, sp.y, USE_BASELINE_ALS, USE_SMOOTHING, 
                                 USE_NORMALIZATION, WAVENUMBER_MIN, WAVENUMBER_MAX)
         X_list.append(np.interp(grid, x_p, y_p))
@@ -156,35 +163,80 @@ def main():
     pipe = Pipeline(steps)
     scores = pipe.fit_transform(X)
 
-    # --- PLOTTING ---
-    plt.figure(figsize=(10, 6))
+   # --- CALCUL DES ELLIPSES ET TRI AUTOMATIQUE ---
+    plt.figure(figsize=(12, 8))
+    ax = plt.gca()
+    
+    # 1. Détection des aberrations pour le groupe de contrôle
+    target_label = "Urine_Base" if "Urine_Base" in labels else "Control_Blank"
+    idx_control = [i for i, l in enumerate(labels) if l == target_label]
+    b_scores = scores[idx_control]
+    b_names = np.array(names)[idx_control]
+    
+    # Filtre statistique (IQR)
+    b_center_raw = np.mean(b_scores[:, :2], axis=0)
+    dists_raw = np.linalg.norm(b_scores[:, :2] - b_center_raw, axis=1)
+    limit = np.percentile(dists_raw, 75)
+    clean_mask = dists_raw <= limit
+    
+    ignored = b_names[~clean_mask]
+    print(f"\n--- FILTRE D'ABERRATIONS ---")
+    print(f"Fichiers Urine_Base masqués (trop dispersés) : {list(ignored)}")
+
+    # 2. Dessin des points propres et des ellipses
     for lab in np.unique(labels):
         mask = np.array(labels) == lab
-        plt.scatter(scores[mask, 0], scores[mask, 1], label=lab, s=50, alpha=0.7)
+        # Pour l'urine, on ne prend que les points "clean"
+        if lab == target_label:
+            idx_to_plot = np.array(idx_control)[clean_mask]
+            s_plot = scores[idx_to_plot]
+        else:
+            s_plot = scores[mask]
+        
+        # Dessin des points
+        scatter = plt.scatter(s_plot[:,0], s_plot[:,1], label=lab, s=60, edgecolors='k', alpha=0.7)
+        color = scatter.get_facecolor()[0]
 
-    # --- MODE TERRAIN : PROJECTION ---
+        # Dessin de l'ellipse de confiance (95%)
+        if len(s_plot) > 2:
+            cov = np.cov(s_plot[:, :2], rowvar=False)
+            vals, vecs = np.linalg.eigh(cov)
+            order = vals.argsort()[::-1]
+            vals, vecs = vals[order], vecs[:, order]
+            theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+            width, height = 2 * 2 * np.sqrt(vals) # Rayon 2-sigma
+            ell = Ellipse(xy=np.mean(s_plot[:, :2], axis=0), width=width, height=height, 
+                          angle=theta, color=color, alpha=0.1, label=f"Zone {lab}")
+            ax.add_artist(ell)
+
+    # 3. Projection de l'Échantillon Terrain (Étoile)
     if NEW_SAMPLE_PATH and os.path.exists(NEW_SAMPLE_PATH):
         xt, yt = read_txt_spectrum(NEW_SAMPLE_PATH)
-        _, ytp = preprocess_y(xt, yt, USE_BASELINE_ALS, USE_SMOOTHING, 
-                              USE_NORMALIZATION, WAVENUMBER_MIN, WAVENUMBER_MAX)
-        yti = np.interp(grid, xt, ytp) - blank_mean
+        xtp, ytp = preprocess_y(xt, yt, USE_BASELINE_ALS, USE_SMOOTHING, 
+                                USE_NORMALIZATION, WAVENUMBER_MIN, WAVENUMBER_MAX)
+        yti = np.interp(grid, xtp, ytp) - blank_mean
         st = pipe.transform([yti])
         
-        # Calcul Distance pour Verdict
-        b_scores = scores[np.array(labels) == "Control_Blank"]
-        b_center = np.mean(b_scores[:, :2], axis=0)
-        dist = np.linalg.norm(st[0, :2] - b_center)
-        seuil = np.mean(np.linalg.norm(b_scores[:, :2] - b_center, axis=1)) + 2 * np.std(np.linalg.norm(b_scores[:, :2] - b_center, axis=1))
+        # Verdict basé sur le groupe propre
+        b_clean_scores = b_scores[clean_mask]
+        b_center_clean = np.mean(b_clean_scores[:, :2], axis=0)
+        dist_test = np.linalg.norm(st[0, :2] - b_center_clean)
         
-        verdict = "POSITIF" if dist > seuil else "NEGATIF"
-        plt.scatter(st[0,0], st[0,1], color='red', marker='*', s=250, label=f"TEST: {verdict}", edgecolors='k')
-        print(f"\nRESULTAT : {verdict} (Dist: {dist:.2f} | Seuil: {seuil:.2f})")
+        # Seuil statistique
+        dists_clean = np.linalg.norm(b_clean_scores[:, :2] - b_center_clean, axis=1)
+        seuil = np.mean(dists_clean) + 2 * np.std(dists_clean)
+        
+        verdict = "POSITIF" if dist_test > seuil else "NEGATIF"
+        plt.scatter(st[0,0], st[0,1], color='red' if verdict=="POSITIF" else 'lime', 
+                    marker='*', s=500, label=f"TEST: {verdict}", edgecolors='k', zorder=100)
+        
+        print(f"VERDICT FINAL : {verdict} (Dist: {dist_test:.2f} | Seuil: {seuil:.2f})")
 
     plt.xlabel(f"PC1 ({pipe.named_steps['pca'].explained_variance_ratio_[0]:.1%})")
     plt.ylabel(f"PC2 ({pipe.named_steps['pca'].explained_variance_ratio_[1]:.1%})")
-    plt.title("PCA Raman - Bibliothèque de Référence vs Échantillon Terrain")
+    plt.title("PCA Raman - Analyse de Détection avec Zones de Confiance")
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(alpha=0.3)
+    plt.grid(alpha=0.2)
     plt.tight_layout()
     plt.show()
 
