@@ -15,14 +15,9 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from matplotlib.patches import Ellipse
 
-# =========================
-# CONFIG (Adapté à ton Mac)
-# =========================
+# CONFIG
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT" 
-
-# --- AJOUT : TON FICHIER TEST TERRAIN ---
-# Chemin vérifié vers ton fichier MIX-mid-3.TXT
 NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/MIX-trace-1.TXT'
 
 # Choix prétraitements
@@ -46,9 +41,7 @@ LABEL_RULES = [
     (r"MIX-haut|MIX-mid", "Pseudo_Concentrée")
 ]
 
-# =========================
 # DATA STRUCTURES
-# =========================
 @dataclass
 class Spectrum:
     path: str
@@ -57,9 +50,7 @@ class Spectrum:
     x: np.ndarray  
     y: np.ndarray  
 
-# =========================
 # IO + PARSING
-# =========================
 def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
     low = filename.lower()
     for pattern, lab in rules:
@@ -87,9 +78,7 @@ def load_library(data_dir: str, file_glob: str) -> List[Spectrum]:
         spectra.append(Spectrum(path=p, name=name, label=label, x=x, y=y))
     return spectra
 
-# =========================
 # PREPROCESSING
-# =========================
 def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int = 15) -> np.ndarray:
     L = len(y)
     D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
@@ -102,7 +91,7 @@ def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int =
     return z
 
 def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
-    # CROP : On s'assure que le masque s'applique aux deux vecteurs en même temps
+    # Croping (On s'assure que le masque s'applique aux deux vecteurs en même temps)
     mask = (x >= (wn_min or x.min())) & (x <= (wn_max or x.max()))
     if not np.any(mask): mask = np.ones(len(x), dtype=bool)
     
@@ -120,17 +109,13 @@ def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
         
     return x_proc, y_proc
 
-# =========================
-# ALIGNMENT / RESAMPLING
-# =========================
+# Alignement
 def build_common_grid(spectra: List[Spectrum], n_points: int = 1500) -> np.ndarray:
     xmin = max(sp.x.min() for sp in spectra)
     xmax = min(sp.x.max() for sp in spectra)
     return np.linspace(xmin, xmax, n_points)
 
-# =========================
-# MAIN ANALYSIS
-# =========================
+# Main
 def main():
     print(f"Loading library from: {DATA_DIR}")
     spectra = load_library(DATA_DIR, FILE_GLOB)
@@ -138,7 +123,6 @@ def main():
 
     X_list, labels, names = [], [], []
     for sp in spectra:
-        # SÉCURITÉ : On récupère x et y déjà coupés et synchronisés
         x_p, y_p = preprocess_y(sp.x, sp.y, USE_BASELINE_ALS, USE_SMOOTHING, 
                                 USE_NORMALIZATION, WAVENUMBER_MIN, WAVENUMBER_MAX)
         X_list.append(np.interp(grid, x_p, y_p))
@@ -147,7 +131,7 @@ def main():
     
     X = np.vstack(X_list)
 
-    # --- SOUSTRACTION DU BLANK (B2) ---
+    # Soustraction du B2 seul pour avoir des resultst clairs
     blank_mean = 0
     if USE_BLANK_SUBTRACTION:
         idx_b = [i for i, l in enumerate(labels) if "Control_Blank" in l]
@@ -163,11 +147,11 @@ def main():
     pipe = Pipeline(steps)
     scores = pipe.fit_transform(X)
 
-   # --- CALCUL DES ELLIPSES ET TRI AUTOMATIQUE ---
+   # Calxcul des ellipses et tri auto.
     plt.figure(figsize=(12, 8))
     ax = plt.gca()
     
-    # 1. Détection des aberrations pour le groupe de contrôle
+    # Détection des aberrations pour le groupe de contrôle
     target_label = "Urine_Base" if "Urine_Base" in labels else "Control_Blank"
     idx_control = [i for i, l in enumerate(labels) if l == target_label]
     b_scores = scores[idx_control]
@@ -183,7 +167,7 @@ def main():
     print(f"\n--- FILTRE D'ABERRATIONS ---")
     print(f"Fichiers Urine_Base masqués (trop dispersés) : {list(ignored)}")
 
-    # 2. Dessin des points propres et des ellipses
+    # Dessin des points propres et ellipses
     for lab in np.unique(labels):
         traduction = {
         "Urine_Base": "Urine saine (Contrôle)",
@@ -200,11 +184,11 @@ def main():
         else:
             s_plot = scores[mask]
         
-        # Dessin des points
+        # Points
         scatter = plt.scatter(s_plot[:,0], s_plot[:,1], label=traduction.get(lab, lab), s=60, edgecolors='k', alpha=0.7)
         color = scatter.get_facecolor()[0]
 
-        # Dessin de l'ellipse de confiance (95%)
+        # Ellipse de confiance (95%)
         if len(s_plot) > 2:
             cov = np.cov(s_plot[:, :2], rowvar=False)
             vals, vecs = np.linalg.eigh(cov)
@@ -216,7 +200,7 @@ def main():
                           angle=theta, color=color, alpha=0.1, label=f"Zone {lab}")
             ax.add_artist(ell)
 
-    # 3. Projection de l'Échantillon Terrain (Étoile)
+    # Projection de l'Échantillon Terrain (Étoile)
     if NEW_SAMPLE_PATH and os.path.exists(NEW_SAMPLE_PATH):
         xt, yt = read_txt_spectrum(NEW_SAMPLE_PATH)
         xtp, ytp = preprocess_y(xt, yt, USE_BASELINE_ALS, USE_SMOOTHING, 
@@ -224,7 +208,7 @@ def main():
         yti = np.interp(grid, xtp, ytp) - blank_mean
         st = pipe.transform([yti])
         
-        # Verdict basé sur le groupe propre
+        # Verdict basé sur le groupe B2 seul
         b_clean_scores = b_scores[clean_mask]
         b_center_clean = np.mean(b_clean_scores[:, :2], axis=0)
         dist_test = np.linalg.norm(st[0, :2] - b_center_clean)
