@@ -17,12 +17,12 @@ from scipy.sparse.linalg import spsolve
 # =========================
 # CONFIG (Adapté à ton Mac)
 # =========================
-DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
+DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1/Données'
 FILE_GLOB = "**/*.TXT" 
 
 # --- AJOUT : TON FICHIER TEST TERRAIN ---
 # Remplace None par le chemin de ton fichier pour un test spontané
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /MIX-mid-3.TXT'
+NEW_SAMPLE_PATH = /Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1/MIX-mid-3.TXT
 
 # Choix prétraitements
 USE_BASELINE_ALS = True
