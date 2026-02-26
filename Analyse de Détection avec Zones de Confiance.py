@@ -23,7 +23,7 @@ FILE_GLOB = "**/*.TXT"
 
 # --- AJOUT : TON FICHIER TEST TERRAIN ---
 # Chemin vérifié vers ton fichier MIX-mid-3.TXT
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/MIX-trace-1.TXT'
 
 # Choix prétraitements
 USE_BASELINE_ALS = True
@@ -37,7 +37,7 @@ N_COMPONENTS = 6
 
 # Domaine spectral (Focus sur les pics chimiques)
 WAVENUMBER_MIN = 450   
-WAVENUMBER_MAX = 1650  
+WAVENUMBER_MAX = 1650
 
 LABEL_RULES = [
     (r"B2", "Urine_Base"),
