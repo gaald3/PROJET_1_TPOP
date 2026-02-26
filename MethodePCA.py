@@ -35,8 +35,8 @@ from scipy.sparse.linalg import spsolve
 # =========================
 # CONFIG (change me)
 # =========================
-DATA_DIR = "./data"   # dossier contenant les .txt (ou sous-dossiers)
-FILE_GLOB = "**/*.txt"  # recherche récursive
+DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
+FILE_GLOB = "**/*.TXT"  # recherche récursive
 
 # Choix prétraitements
 USE_BASELINE_ALS = True

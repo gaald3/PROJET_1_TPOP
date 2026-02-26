@@ -23,7 +23,7 @@ FILE_GLOB = "**/*.TXT"
 
 # --- AJOUT : TON FICHIER TEST TERRAIN ---
 # Chemin vérifié vers ton fichier MIX-mid-3.TXT
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données/B2-Bas-2.TXT'
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
 
 # Choix prétraitements
 USE_BASELINE_ALS = True
@@ -33,7 +33,7 @@ USE_STANDARDIZE_FOR_PCA = True
 USE_BLANK_SUBTRACTION = True 
 
 # PCA
-N_COMPONENTS = 5
+N_COMPONENTS = 6
 
 # Domaine spectral (Focus sur les pics chimiques)
 WAVENUMBER_MIN = 450   
@@ -185,6 +185,13 @@ def main():
 
     # 2. Dessin des points propres et des ellipses
     for lab in np.unique(labels):
+        traduction = {
+        "Urine_Base": "Urine saine (Contrôle)",
+        "Pseudo_Traces": "Limite de détection (Traces)",
+        "Pseudo_Pure": "Signature Moléculaire Pure",
+        "Pseudo_Concentrée": "Échantillon dopé (Haut)",
+        "TEST: POSITIF": "VERDICT : DOPAGE DÉTECTÉ"
+    }
         mask = np.array(labels) == lab
         # Pour l'urine, on ne prend que les points "clean"
         if lab == target_label:
@@ -194,7 +201,7 @@ def main():
             s_plot = scores[mask]
         
         # Dessin des points
-        scatter = plt.scatter(s_plot[:,0], s_plot[:,1], label=lab, s=60, edgecolors='k', alpha=0.7)
+        scatter = plt.scatter(s_plot[:,0], s_plot[:,1], label=traduction.get(lab, lab), s=60, edgecolors='k', alpha=0.7)
         color = scatter.get_facecolor()[0]
 
         # Dessin de l'ellipse de confiance (95%)
@@ -232,11 +239,9 @@ def main():
         
         print(f"VERDICT FINAL : {verdict} (Dist: {dist_test:.2f} | Seuil: {seuil:.2f})")
 
-    plt.xlabel(f"PC1 ({pipe.named_steps['pca'].explained_variance_ratio_[0]:.1%})")
-    plt.ylabel(f"PC2 ({pipe.named_steps['pca'].explained_variance_ratio_[1]:.1%})")
-    plt.title("PCA Raman - Analyse de Détection avec Zones de Confiance")
+    plt.xlabel(f"Axe de signature chimique [PC1]")
+    plt.ylabel(f"Axe de variabilité de la matrice [PC2]")
     plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
-    plt.grid(alpha=0.2)
     plt.tight_layout()
     plt.show()
 
