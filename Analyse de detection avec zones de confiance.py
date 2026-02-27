@@ -15,11 +15,13 @@ from scipy import sparse
 from scipy.sparse.linalg import spsolve
 from matplotlib.patches import Ellipse
 
-# CONFIG
+
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT"
 # Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
 NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
+
+# Pour tester avcec ou sans chaque étape de prétraitement
 USE_BASELINE_ALS = True
 USE_SMOOTHING = True # Filtre de Savitzky-Golay reduit le bruit mais ecrase pas les pics
 USE_NORMALIZATION = True     
@@ -40,7 +42,6 @@ LABEL_RULES = [
     (r"MIX-haut|MIX-mid", "Pseudo_Concentrée")
 ]
 
-# DATA STRUCTURES
 @dataclass
 class Spectrum:
     path: str
@@ -49,7 +50,6 @@ class Spectrum:
     x: np.ndarray  
     y: np.ndarray  
 
-# IO + PARSING
 def infer_label_from_name(filename: str, rules=LABEL_RULES) -> str:
     low = filename.lower()
     for pattern, lab in rules:
@@ -77,14 +77,13 @@ def load_library(data_dir: str, file_glob: str) -> List[Spectrum]:
         spectra.append(Spectrum(path=p, name=name, label=label, x=x, y=y))
     return spectra
 
-# PREPROCESSING
+    
+def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int = 15) -> np.ndarray:
     """
     Algèbre linéaire pour estimer la "courbe" de fluorescence
     et la soustraire, afin de ne garder que les pics
     Raman d'interet.
     """
-
-def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int = 15) -> np.ndarray:
     L = len(y)
     D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
     w = np.ones(L)
@@ -125,7 +124,7 @@ def build_common_grid(spectra: List[Spectrum], n_points: int = 1500) -> np.ndarr
     xmax = min(sp.x.max() for sp in spectra)
     return np.linspace(xmin, xmax, n_points)
 
-# Main
+
 def main():
     print(f"Loading library from: {DATA_DIR}")
     spectra = load_library(DATA_DIR, FILE_GLOB)
@@ -172,13 +171,18 @@ def main():
     # Pipeline PCA
     steps = [("pca", PCA(n_components=N_COMPONENTS, random_state=42))]
     if USE_STANDARDIZE_FOR_PCA:
+        """
+        transforme les unités de 'comptes'
+        en unités de variance sans dimension.
+        """
         steps.insert(0, ("scaler", StandardScaler()))
     pipe = Pipeline(steps)
     scores = pipe.fit_transform(X)
 
+    # On plot un graph pour corrélé le pic théo vs experimental
+
     loadings = pipe.named_steps['pca'].components_[0] 
 
-    # Définition de la fenêtre d'intérêt (Fingerprint region)
     mask_zoom = (grid >= 700) & (grid <= 1300)
     grid_zoom = grid[mask_zoom]
     loadings_zoom = loadings[mask_zoom]
@@ -269,7 +273,7 @@ def main():
             ax.add_artist(ell)
         
 
-    # échantillon Terrain (Étoile)
+    # échantillon terrain (étoile)
     if NEW_SAMPLE_PATH and os.path.exists(NEW_SAMPLE_PATH):
         xt, yt = read_txt_spectrum(NEW_SAMPLE_PATH)
         xtp, ytp = preprocess_y(xt, yt, USE_BASELINE_ALS, USE_SMOOTHING, 
