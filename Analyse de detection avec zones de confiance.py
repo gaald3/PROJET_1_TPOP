@@ -19,7 +19,7 @@ from matplotlib.patches import Ellipse
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT"
 # Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-haut-1.TXT'
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
 
 # Pour tester avcec ou sans chaque étape de prétraitement
 USE_BASELINE_ALS = True
