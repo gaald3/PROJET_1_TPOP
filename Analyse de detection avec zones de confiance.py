@@ -176,6 +176,34 @@ def main():
     pipe = Pipeline(steps)
     scores = pipe.fit_transform(X)
 
+    loadings = pipe.named_steps['pca'].components_[0] 
+
+    # Définition de la fenêtre d'intérêt (Fingerprint region)
+    mask_zoom = (grid >= 700) & (grid <= 1300)
+    grid_zoom = grid[mask_zoom]
+    loadings_zoom = loadings[mask_zoom]
+
+    plt.figure(figsize=(9, 5))
+    plt.plot(grid_zoom, loadings_zoom, color='red', lw=2, label="Signature PC1")
+    plt.axhline(0, color='black', linestyle='--', alpha=0.3)
+    
+    # Identification automatique du pic de référence (Benzène)
+    if len(loadings_zoom) > 0:
+        idx_max = np.argmax(np.abs(loadings_zoom))
+        pk_wn = grid_zoom[idx_max]
+        plt.annotate(f"Pic caractéristique\n{pk_wn:.0f} cm⁻¹", 
+                     xy=(pk_wn, loadings_zoom[idx_max]), 
+                     xytext=(pk_wn+50, loadings_zoom[idx_max]*0.8),
+                     arrowprops=dict(arrowstyle='->', color='black', lw=1.5),
+                     fontsize=10, fontweight='bold', color='black')
+
+    plt.title("Analyse du pic Ramnan caractéristique")
+    plt.xlabel("Nombre d'onde [cm⁻¹]")
+    plt.ylabel("Importance statistique (Loading)")
+    plt.grid(alpha=0.2, linestyle=':')
+    plt.tight_layout()
+    plt.show()
+
    # Calxcul des ellipses et tri auto.
     plt.figure(figsize=(12, 8))
     ax = plt.gca()
