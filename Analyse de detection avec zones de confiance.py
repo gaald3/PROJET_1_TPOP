@@ -19,7 +19,7 @@ from matplotlib.patches import Ellipse
 DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT"
 # Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
+NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-haut-1.TXT'
 
 # Pour tester avcec ou sans chaque étape de prétraitement
 USE_BASELINE_ALS = True
@@ -29,7 +29,7 @@ USE_STANDARDIZE_FOR_PCA = True
 USE_BLANK_SUBTRACTION = True 
 
 # PCA
-N_COMPONENTS = 6
+N_COMPONENTS = 3
 
 # **Pour ignorer le bruit (fluo)
 WAVENUMBER_MIN = 450   
@@ -143,14 +143,15 @@ def main():
     # Soustraction du B2 moyen seul pour voir juste le dopant
     blank_mean = 0
     if USE_BLANK_SUBTRACTION:
-        idx_b = [i for i, l in enumerate(labels) if "Control_Blank" in l]
+        idx_b = [i for i, l in enumerate(labels) if "B2" in l]
         if idx_b:
             blank_mean = np.mean(X[idx_b], axis=0)
             X = X - blank_mean
             print(f"-> Soustraction du Blank moyen ({len(idx_b)} fichiers)")
 
         # Comparaison avant apres tx données
-    idx_test = 0  # premier spectre de la liste
+    # Plus robuste :
+    idx_test = labels.index("Pseudo_Concentrée") if "Pseudo_Concentrée" in labels else 0
     sp_raw_x, sp_raw_y = spectra[idx_test].x, spectra[idx_test].y
     sp_proc_x, sp_proc_y = preprocess_y(sp_raw_x, sp_raw_y, USE_BASELINE_ALS, 
                                         USE_SMOOTHING, USE_NORMALIZATION, 
@@ -236,12 +237,13 @@ def main():
     # Dessin des points et ellipses
     for lab in np.unique(labels):
         traduction = {
-        "Urine_Base": "Urine saine (Contrôle)",
-        "Pseudo_Traces": "Limite de détection (Traces)",
-        "Pseudo_Pure": "Signature Moléculaire Pure",
-        "Pseudo_Concentrée": "Échantillon élevé (Haut)",
-        "TEST: POSITIF": "VERDICT : DOPAGE DÉTECTÉ"
-    }
+            "Urine_Base": "Urine saine (B2)",
+            "Pseudo_Traces": "Limite de détection (Traces)",
+            "Pseudo_Pure": "Référence : Molécule Pure",
+            "Pseudo_Concentrée": "Échantillon concentré (Haut)",
+            "TEST: POSITIF": "VERDICT : DOPAGE DÉTECTÉ",
+            "TEST: NEGATIF": "VERDICT : ÉCHANTILLON SAIN"
+        }
         mask = np.array(labels) == lab
         # Pour l'urine, on ne prend que les points "clean"
         if lab == target_label:
@@ -268,8 +270,10 @@ def main():
             vals, vecs = vals[order], vecs[:, order]
             theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
             width, height = 2 * 2 * np.sqrt(vals) # Rayon 2-sigma
+            label_propre = traduction.get(lab, lab)
             ell = Ellipse(xy=np.mean(s_plot[:, :2], axis=0), width=width, height=height, 
-                          angle=theta, color=color, alpha=0.1, label=f"Zone {lab}")
+                          angle=theta, color=color, alpha=0.1, 
+                          label=f"Zone {label_propre}")
             ax.add_artist(ell)
         
 
@@ -294,14 +298,16 @@ def main():
         est plus grand que le rayon de confiance.
         """
         verdict = "POSITIF" if dist_test > seuil else "NEGATIF" 
+        label_verdict = traduction.get(f"TEST: {verdict}", f"TEST: {verdict}")
         plt.scatter(st[0,0], st[0,1], color='red' if verdict=="POSITIF" else 'lime', 
-                    marker='*', s=500, label=f"TEST: {verdict}", edgecolors='k', zorder=100)
+                    marker='*', s=350, label=label_verdict, edgecolors='k', zorder=100)
         
         print(f"VERDICT FINAL : {verdict} (Dist: {dist_test:.2f} | Seuil: {seuil:.2f})")
 
     plt.xlabel(f"Axe de signature chimique [PC1]")
     plt.ylabel(f"Axe de variabilité de la matrice [PC2]")
-    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left',
+               frameon=True, fancybox=True, shadow=True)
     plt.tight_layout()
     plt.show()
 
