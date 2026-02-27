@@ -150,6 +150,25 @@ def main():
             X = X - blank_mean
             print(f"-> Soustraction du Blank moyen ({len(idx_b)} fichiers)")
 
+        # Comparaison avant apres tx données
+    idx_test = 0  # premier spectre de la liste
+    sp_raw_x, sp_raw_y = spectra[idx_test].x, spectra[idx_test].y
+    sp_proc_x, sp_proc_y = preprocess_y(sp_raw_x, sp_raw_y, USE_BASELINE_ALS, 
+                                        USE_SMOOTHING, USE_NORMALIZATION, 
+                                        WAVENUMBER_MIN, WAVENUMBER_MAX)
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.plot(sp_raw_x, sp_raw_y, color='gray')
+    plt.title("Spectre Brut")
+    plt.xlabel("cm-1")
+
+    plt.subplot(1, 2, 2)
+    plt.plot(sp_proc_x, sp_proc_y, color='blue')
+    plt.title("Spectre Traité")
+    plt.xlabel("cm-1")
+    plt.tight_layout()
+    plt.show()
+
     # Pipeline PCA
     steps = [("pca", PCA(n_components=N_COMPONENTS, random_state=42))]
     if USE_STANDARDIZE_FOR_PCA:
@@ -220,6 +239,7 @@ def main():
             ell = Ellipse(xy=np.mean(s_plot[:, :2], axis=0), width=width, height=height, 
                           angle=theta, color=color, alpha=0.1, label=f"Zone {lab}")
             ax.add_artist(ell)
+        
 
     # échantillon Terrain (Étoile)
     if NEW_SAMPLE_PATH and os.path.exists(NEW_SAMPLE_PATH):
