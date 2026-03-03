@@ -16,10 +16,10 @@ from scipy.sparse.linalg import spsolve
 from matplotlib.patches import Ellipse
 
 
-DATA_DIR = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
+DATA_DIR = '/Users/jonathanvezina/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /Données'
 FILE_GLOB = "**/*.TXT"
 # Le code prend le fichier suivant (nettoie aussi) et le projette sur le graph pour l'analyse
-NEW_SAMPLE_PATH = '/Users/mac/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-mid-3.TXT'
+NEW_SAMPLE_PATH = '/Users/jonathanvezina/Library/Mobile Documents/com~apple~CloudDocs/Session H26/TPOP Projet 1 /TEST TERRAIN/MIX-haut-1.TXT'
 
 # Pour tester avcec ou sans chaque étape de prétraitement
 USE_BASELINE_ALS = True
@@ -41,7 +41,7 @@ LABEL_RULES = [
     (r"trace", "Pseudo_Traces"),
     (r"MIX-haut|MIX-mid", "Pseudo_Concentrée")
 ]
-
+plt.rcParams.update({'font.size': 16})
 @dataclass
 class Spectrum:
     path: str
@@ -84,18 +84,18 @@ def baseline_als(y: np.ndarray, lam: float = 1e5, p: float = 0.001, niter: int =
     et la soustraire, afin de ne garder que les pics
     Raman d'interet.
     """
-    L = len(y)
-    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2))
+    L = len(y) # longeur du spectre
+    D = sparse.diags([1, -2, 1], [0, -1, -2], shape=(L, L-2)) # matrice
     w = np.ones(L)
-    for _ in range(niter):
+    for _ in range(niter): # itérations pour converger vers la baseline
         W = sparse.spdiags(w, 0, L, L)
-        Z = W + lam * D.dot(D.T)
+        Z = W + lam * D.dot(D.T) # avec grand lambda, on force la solution à être plus lisse
         z = spsolve(Z, w * y)
-        w = p * (y > z) + (1 - p) * (y < z)
-    return z
+        w = p * (y > z) + (1 - p) * (y < z) # on compare le spectre original avec la baseline estimée
+    return z # donne juste la baseline estimée, à soustraire du spectre original
 
 def preprocess_y(x, y, use_baseline, use_smoothing, use_norm, wn_min, wn_max):
-    # ignorer le bruit (Savitsky)
+    # ignorer le bruit (Savitsky), permet de voir seulement ce qui a ete ajouté
     mask = (x >= (wn_min or x.min())) & (x <= (wn_max or x.max()))
     if not np.any(mask): mask = np.ones(len(x), dtype=bool)
     
@@ -159,13 +159,12 @@ def main():
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
     plt.plot(sp_raw_x, sp_raw_y, color='gray')
-    plt.title("Spectre Brut")
-    plt.xlabel("cm-1")
+    plt.xlabel("(cm-1)")
+    plt.ylabel("Nombre de comptes")
 
     plt.subplot(1, 2, 2)
     plt.plot(sp_proc_x, sp_proc_y, color='blue')
-    plt.title("Spectre Traité")
-    plt.xlabel("cm-1")
+    plt.xlabel("(cm-1)")
     plt.tight_layout()
     plt.show()
 
@@ -189,7 +188,7 @@ def main():
     loadings_zoom = loadings[mask_zoom]
 
     plt.figure(figsize=(9, 5))
-    plt.plot(grid_zoom, loadings_zoom, color='red', lw=2, label="Signature PC1")
+    plt.plot(grid_zoom, loadings_zoom, color='blue', lw=2, label="Signature PC1")
     plt.axhline(0, color='black', linestyle='--', alpha=0.3)
     
     # Identification automatique du pic de référence (Benzène)
@@ -202,7 +201,6 @@ def main():
                      arrowprops=dict(arrowstyle='->', color='black', lw=1.5),
                      fontsize=10, fontweight='bold', color='black')
 
-    plt.title("Analyse du pic Ramnan caractéristique")
     plt.xlabel("Nombre d'onde [cm⁻¹]")
     plt.ylabel("Importance statistique (Loading)")
     plt.grid(alpha=0.2, linestyle=':')
